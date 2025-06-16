@@ -4,10 +4,14 @@
   import ResponseViewer from '../components/ResponseViewer.svelte';
   import CurlImportModal from '../components/CurlImportModal.svelte';
   import AddCollectionModal from '../components/AddCollectionModal.svelte';
+  import Settings from '../components/Settings.svelte';
 
   // Track loading state for request in progress
   let isLoading = false;
   import { parseCurlCommand } from '../shared/parseCurl.js';
+  
+  // Settings panel state
+  let showSettings = false;
 
   // Track collections and requests
   let collections = [];
@@ -72,6 +76,41 @@
     tabEditJustConfirmed = false;
   }
 
+  // Show collection selection dialog and save request to it
+  async function saveRequestToCollection() {
+    if (!selectedCollection) {
+      if (!collections || collections.length === 0) {
+        // No collections yet, create one first
+        showAddCollectionModal = true;
+        return;
+      }
+      
+      // If no collection is selected but collections exist, select the first one
+      await handleSelectCollection(collections[0]);
+    }
+    
+    // Get current request
+    const req = requests[activeRequestIdx];
+    req.collectionId = selectedCollection.id;
+    
+    // Save to collection
+    try {
+      const response = await window.electronAPI.addRequest(selectedCollection.id, req);
+      if (response.success) {
+        // Replace the request with the one from the server (with proper ID)
+        requests[activeRequestIdx] = response.data;
+        requests = requests; // Trigger reactivity
+        
+        // Remove from unsaved set
+        unsavedRequests.delete(req.id);
+        unsavedRequests = unsavedRequests; // Trigger reactivity
+        console.log('Request saved to collection successfully');
+      }
+    } catch (err) {
+      console.error('Failed to save request to collection:', err);
+    }
+  }
+  
   async function saveCurrentRequest() {
     const req = requests[activeRequestIdx];
     
@@ -88,6 +127,9 @@
       } catch (err) {
         console.error('Failed to save request:', err);
       }
+    } else if (!req.collectionId) {
+      // If not in a collection yet, save to collection
+      await saveRequestToCollection();
     }
   }
   
@@ -202,31 +244,88 @@
   
   async function handleAddCollectionSubmit(event) {
     const { name } = event.detail;
-    if (name) {
-      if (window.electronAPI?.createCollection) {
-        try {
-          const response = await window.electronAPI.createCollection({ name });
-          if (response.success) {
-            collections = [...collections, response.data];
-            selectedCollection = response.data;
-          }
-        } catch (err) {
-          console.error('Failed to create collection:', err);
-        }
-      } else {
-        // Fallback for browser environment
-        const newCollection = { 
-          id: Date.now().toString(), 
-          name, 
-          requests: [],
+    if (!name || name.trim() === '') {
+      showAddCollectionModal = false;
+      return;
+    }
+    
+    if (window.electronAPI?.createCollection) {
+      try {
+        // Create collection in persistent storage
+        const response = await window.electronAPI.createCollection({ 
+          name,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        };
-        collections = [...collections, newCollection];
-        selectedCollection = newCollection;
+        });
+        
+        if (response.success) {
+          // Update UI with the newly created collection
+          collections = [...collections, response.data];
+          selectedCollection = response.data;
+          console.log('Collection created successfully:', response.data);
+          
+          // Auto-load the new collection
+          await handleSelectCollection(response.data);
+        }
+      } catch (err) {
+        console.error('Failed to create collection:', err);
+        alert('Failed to create collection. Please try again.');
+      }
+    } else {
+      // Fallback for browser environment
+      const newCollection = { 
+        id: Date.now().toString(), 
+        name, 
+        requests: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      collections = [...collections, newCollection];
+      selectedCollection = newCollection;
+    }
+    
+    showAddCollectionModal = false;
+  }
+  
+  async function handleDeleteCollection(collection) {
+    if (!collection || !collection.id) return;
+    
+    if (window.electronAPI?.deleteCollection) {
+      try {
+        const response = await window.electronAPI.deleteCollection(collection.id);
+        
+        if (response.success) {
+          // Update collections list
+          collections = collections.filter(c => c.id !== collection.id);
+          
+          // If the deleted collection was selected, clear selection
+          if (selectedCollection?.id === collection.id) {
+            selectedCollection = null;
+            
+            // Reset to default request
+            requests = [{
+              id: Date.now().toString(),
+              name: 'New Request',
+              method: 'GET',
+              url: 'https://jsonplaceholder.typicode.com/todos/1',
+              headers: [{ key: 'Accept', value: 'application/json' }],
+              body: '',
+              collectionId: null
+            }];
+            responses = [null];
+            activeRequestIdx = 0;
+            unsavedRequests = new Set();
+          }
+          
+          console.log('Collection deleted successfully:', collection.id);
+        } else {
+          alert('Failed to delete collection. Please try again.');
+        }
+      } catch (err) {
+        console.error('Failed to delete collection:', err);
+        alert('Failed to delete collection. Please try again.');
       }
     }
-    showAddCollectionModal = false;
   }
   async function addManualRequest() {
     const newRequest = {
@@ -344,7 +443,13 @@ async function handleCurlImport({ detail }) {
 <div class="container-fluid min-vh-100 p-0">
   <div class="row g-0 min-vh-100 flex-nowrap">
     <div class="col-auto bg-light border-end p-0" style="width:260px; min-width:220px;">
-      <Sidebar {collections} onSelectCollection={handleSelectCollection} onAddCollection={handleAddCollection} />
+      <Sidebar 
+        {collections} 
+        {selectedCollection}
+        onSelectCollection={handleSelectCollection} 
+        onAddCollection={handleAddCollection} 
+        onDeleteCollection={handleDeleteCollection}
+      />
     </div>
     <div class="col p-0 d-flex flex-column" style="overflow-x:auto;">
       <div class="d-flex align-items-center border-bottom px-3 py-2 bg-white">
@@ -397,21 +502,48 @@ async function handleCurlImport({ detail }) {
     </li>
   {/each}
 </ul>
-        <button class="btn btn-outline-primary btn-sm ms-2" on:click={addManualRequest}>+ Add Request</button>
-<button class="btn btn-outline-secondary btn-sm ms-2" on:click={() => showCurlImportModal = true}>Import from curl</button>
-{#if unsavedRequests.has(requests[activeRequestIdx]?.id)}
-  <button class="btn btn-outline-success btn-sm ms-2" on:click={saveCurrentRequest}>Save</button>
-{/if}
+        <div class="btn-toolbar ms-2">
+  <div class="btn-group me-2">
+    <button class="btn btn-outline-primary btn-sm" on:click={addManualRequest}>+ Add Request</button>
+    <button class="btn btn-outline-secondary btn-sm" on:click={() => showCurlImportModal = true}>Import from curl</button>
+  </div>
+  <div class="btn-group me-2">
+    {#if unsavedRequests.has(requests[activeRequestIdx]?.id)}
+      <button class="btn btn-success btn-sm" on:click={saveCurrentRequest}>
+        <i class="bi bi-save"></i> Save Request
+      </button>
+    {:else if requests[activeRequestIdx]?.collectionId}
+      <button class="btn btn-outline-success btn-sm" disabled>
+        <i class="bi bi-check-circle"></i> Saved
+      </button>
+    {:else}
+      <button class="btn btn-outline-secondary btn-sm" on:click={() => saveRequestToCollection()}>
+        <i class="bi bi-save"></i> Save to Collection
+      </button>
+    {/if}
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-outline-dark btn-sm" on:click={() => showSettings = !showSettings}>
+      <i class="bi bi-gear"></i> {showSettings ? 'Hide Settings' : 'Settings'}
+    </button>
+  </div>
+</div>
       </div>
       <div class="flex-grow-1 d-flex flex-column">
-        <RequestEditor
-          request={requests[activeRequestIdx]}
-          onSend={handleSend}
-          onChange={handleChange}
-        />
-        <div class="mt-3">
-          <ResponseViewer response={responses[activeRequestIdx]} isLoading={isLoading} />
-        </div>
+        {#if showSettings}
+          <div class="p-3">
+            <Settings on:close={() => showSettings = false} />
+          </div>
+        {:else}
+          <RequestEditor
+            request={requests[activeRequestIdx]}
+            onSend={handleSend}
+            onChange={handleChange}
+          />
+          <div class="mt-3">
+            <ResponseViewer response={responses[activeRequestIdx]} isLoading={isLoading} />
+          </div>
+        {/if}
       </div>
     </div>
   </div>

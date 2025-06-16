@@ -7,12 +7,14 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "electron": "electron ."
+    "electron": "electron .",
+    "dev:electron": "concurrently \"vite dev\" \"wait-on http://localhost:5173 && electron .\""
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^10.1.1",
     "@sveltejs/kit": "^2.21.5",
     "axios": "^1.10.0",
+    "bootstrap-icons": "^1.13.1",
     "curlconverter": "^4.0.0",
     "lowdb": "^6.1.1",
     "svelte": "^5.34.3",
@@ -20,8 +22,10 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.17",
+    "concurrently": "^9.1.2",
     "electron": "^36.4.0",
     "electron-builder": "^26.0.12",
-    "postcss": "^8.5.5"
+    "postcss": "^8.5.5",
+    "wait-on": "^8.0.3"
   }
 }

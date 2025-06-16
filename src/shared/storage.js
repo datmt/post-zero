@@ -1,57 +1,200 @@
-import fs from 'fs';
-import path from 'path';
+import { join, dirname } from 'path';
+import { Low } from 'lowdb';
+import { JSONFile } from 'lowdb/node';
+import fs from 'fs/promises';
 
 /**
  * Storage utility for managing collections and requests
- * Uses simple JSON files stored in the Electron userData directory
+ * Uses lowdb for easy JSON persistence in Electron userData directory
  */
 export class Storage {
-  constructor(userDataPath) {
+  constructor(userDataPath, fileName = 'postzero-db') {
     this.userDataPath = userDataPath;
-    this.collectionsPath = path.join(userDataPath, 'collections.json');
-    this.ensureStorageExists();
+    this.dbPath = join(userDataPath, `${fileName}.json`);
+    this.dbInitialized = false;
+    this.initPromise = this.initializeDb();
+  }
+  
+  /**
+   * Get the database file path
+   * @returns {string} Path to the database file
+   */
+  getDbPath() {
+    return this.dbPath;
+  }
+  
+  /**
+   * Public initialization method to ensure database is ready
+   * @returns {Promise<boolean>} True if initialization was successful
+   */
+  async init() {
+    // Return the existing initialization promise
+    return this.initPromise;
   }
 
   /**
-   * Ensure storage directory and files exist
+   * Initialize the database with lowdb
    */
-  ensureStorageExists() {
-    if (!fs.existsSync(this.userDataPath)) {
-      fs.mkdirSync(this.userDataPath, { recursive: true });
+  async initializeDb() {
+    try {
+      console.log(`Ensuring database path exists: ${this.dbPath}`);
+      
+      // Make sure the directory exists
+      const dirPath = dirname(this.dbPath);
+      try {
+        await fs.mkdir(dirPath, { recursive: true });
+        console.log(`Ensured directory exists: ${dirPath}`);
+      } catch (dirErr) {
+        console.warn(`Warning creating directory (may already exist): ${dirErr.message}`);
+      }
+      
+      // Create a JSONFile adapter
+      const adapter = new JSONFile(this.dbPath);
+      
+      // Create a lowdb instance
+      this.db = new Low(adapter, { collections: [] });
+      
+      console.log('Reading database file...');
+      
+      try {
+        // Read existing data from disk
+        await this.db.read();
+        console.log('Database read successfully, collections:', 
+          this.db.data?.collections?.length || 0);
+      } catch (readError) {
+        console.warn('Could not read database, initializing with empty data:', readError.message);
+        this.db.data = { collections: [] };
+      }
+      
+      // Set default values if data is empty
+      if (!this.db.data || !this.db.data.collections) {
+        console.log('No collections found, initializing empty collections array');
+        this.db.data = { collections: [] };
+        // Write initial data structure
+        try {
+          await this.db.write();
+          console.log('Successfully wrote initial database structure');
+        } catch (writeErr) {
+          console.error('Error writing initial database:', writeErr);
+          throw writeErr; // Propagate the error to be handled in the outer catch
+        }
+      }
+      
+      // Mark as initialized
+      this.dbInitialized = true;
+      console.log(`Database initialized successfully with ${this.db.data.collections.length} collections at: ${this.dbPath}`);
+      return true;
+    } catch (error) {
+      console.error('Fatal error initializing database:', error);
+      // Fallback to in-memory data if file operations fail
+      this.db = { data: { collections: [] }, write: async () => {} };
+      this.dbInitialized = true; // Even if using fallback, mark as initialized to prevent endless retries
+      return false;
+    }
+  }
+  
+  /**
+   * Safely write data to disk with retries and error handling
+   * @returns {Promise<boolean>} True if successful, false if failed
+   */
+  async write() {
+    if (!this.db) {
+      console.error('Cannot write to database: Database not initialized');
+      return false;
     }
     
-    if (!fs.existsSync(this.collectionsPath)) {
-      // Initialize with an empty collections array
-      this.saveCollections([]);
+    // First, make sure the directory exists
+    const dirPath = dirname(this.dbPath);
+    try {
+      await fs.mkdir(dirPath, { recursive: true });
+    } catch (dirErr) {
+      console.warn(`Warning checking directory (continuing anyway): ${dirErr.message}`);
     }
+    
+    // Log what we're about to write for debugging
+    const collCount = this.db.data?.collections?.length || 0;
+    console.log(`Writing database with ${collCount} collections to: ${this.dbPath}`);
+    
+    try {
+      // Try to write data to disk with retry logic
+      let retries = 3;
+      let success = false;
+      
+      while (retries > 0 && !success) {
+        try {
+          // Force a direct write to disk
+          await this.db.write();
+          
+          // Verify data was written by reading it back
+          if (retries === 3) { // Only on first attempt to avoid infinite loops
+            try {
+              await this.db.read();
+              const verifiedCount = this.db.data?.collections?.length || 0;
+              console.log(`Database verified with ${verifiedCount} collections`);
+            } catch (verifyErr) {
+              console.warn('Could not verify database write, continuing anyway:', verifyErr.message);
+            }
+          }
+          
+          success = true;
+          console.log('Database written successfully');
+        } catch (err) {
+          console.error(`Error writing to database (${retries} retries left):`, err);
+          
+          // If we're on the last retry, try writing to userData as a fallback
+          if (retries === 1) {
+            try {
+              const originalPath = this.dbPath;
+              // Get just the filename from the path
+              const filename = originalPath.split(/[\\/]/).pop();
+              // Use the constructor's userDataPath as fallback
+              this.dbPath = join(this.userDataPath, filename);
+              console.log(`Attempting fallback write to: ${this.dbPath}`);
+              await this.db.write();
+              success = true;
+              console.log(`Fallback write successful, using: ${this.dbPath}`);
+            } catch (fallbackErr) {
+              console.error('Fallback write failed:', fallbackErr);
+            }
+          }
+          
+          retries--;
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      return success;
+    } catch (error) {
+      console.error('Fatal error writing to database:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Ensure database is ready before operations
+   */
+  async ensureDbReady() {
+    // Wait for the initial initialization to complete if it's in progress
+    if (this.initPromise) {
+      await this.initPromise;
+      this.initPromise = null;
+    }
+    
+    // If still not initialized, try again
+    if (!this.dbInitialized || !this.db) {
+      await this.initializeDb();
+    }
+    return this.db;
   }
 
   /**
    * Get all collections
    * @returns {Array} Array of collections
    */
-  getCollections() {
-    try {
-      const data = fs.readFileSync(this.collectionsPath, 'utf8');
-      return JSON.parse(data);
-    } catch (error) {
-      console.error('Error reading collections:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Save all collections
-   * @param {Array} collections Array of collections
-   */
-  saveCollections(collections) {
-    try {
-      fs.writeFileSync(this.collectionsPath, JSON.stringify(collections, null, 2), 'utf8');
-      return true;
-    } catch (error) {
-      console.error('Error saving collections:', error);
-      return false;
-    }
+  async getCollections() {
+    await this.ensureDbReady();
+    return this.db.data.collections;
   }
 
   /**
@@ -59,8 +202,9 @@ export class Storage {
    * @param {Object} collection Collection object with name property
    * @returns {Object} Created collection with id
    */
-  createCollection(collection) {
-    const collections = this.getCollections();
+  async createCollection(collection) {
+    await this.ensureDbReady();
+    
     // Generate a unique id for the collection
     const id = Date.now().toString();
     const newCollection = {
@@ -71,8 +215,8 @@ export class Storage {
       updatedAt: new Date().toISOString()
     };
     
-    collections.push(newCollection);
-    this.saveCollections(collections);
+    this.db.data.collections.push(newCollection);
+    await this.write();
     return newCollection;
   }
 
@@ -82,8 +226,10 @@ export class Storage {
    * @param {Object} updates Updates to apply to the collection
    * @returns {Object|null} Updated collection or null if not found
    */
-  updateCollection(id, updates) {
-    const collections = this.getCollections();
+  async updateCollection(id, updates) {
+    await this.ensureDbReady();
+    
+    const collections = this.db.data.collections;
     const index = collections.findIndex(c => c.id === id);
     
     if (index === -1) return null;
@@ -94,7 +240,7 @@ export class Storage {
       updatedAt: new Date().toISOString()
     };
     
-    this.saveCollections(collections);
+    await this.write();
     return collections[index];
   }
 
@@ -103,14 +249,16 @@ export class Storage {
    * @param {String} id Collection ID
    * @returns {Boolean} True if deleted, false if not found
    */
-  deleteCollection(id) {
-    const collections = this.getCollections();
+  async deleteCollection(id) {
+    await this.ensureDbReady();
+    
+    const collections = this.db.data.collections;
     const initialLength = collections.length;
-    const filtered = collections.filter(c => c.id !== id);
+    this.db.data.collections = collections.filter(c => c.id !== id);
     
-    if (filtered.length === initialLength) return false;
+    if (this.db.data.collections.length === initialLength) return false;
     
-    this.saveCollections(filtered);
+    await this.write();
     return true;
   }
 
@@ -120,17 +268,20 @@ export class Storage {
    * @param {Object} request Request object to add
    * @returns {Object|null} Added request or null if collection not found
    */
-  addRequest(collectionId, request) {
-    const collections = this.getCollections();
+  async addRequest(collectionId, request) {
+    await this.ensureDbReady();
+    
+    const collections = this.db.data.collections;
     const collectionIndex = collections.findIndex(c => c.id === collectionId);
     
     if (collectionIndex === -1) return null;
     
-    // Generate a unique id for the request
-    const id = Date.now().toString();
+    // Generate a unique id for the request if it doesn't have one
+    const id = request.id || Date.now().toString();
     const newRequest = {
       id,
       ...request,
+      collectionId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -142,7 +293,7 @@ export class Storage {
     collections[collectionIndex].requests.push(newRequest);
     collections[collectionIndex].updatedAt = new Date().toISOString();
     
-    this.saveCollections(collections);
+    await this.write();
     return newRequest;
   }
 
@@ -153,8 +304,10 @@ export class Storage {
    * @param {Object} updates Updates to apply to the request
    * @returns {Object|null} Updated request or null if not found
    */
-  updateRequest(collectionId, requestId, updates) {
-    const collections = this.getCollections();
+  async updateRequest(collectionId, requestId, updates) {
+    await this.ensureDbReady();
+    
+    const collections = this.db.data.collections;
     const collectionIndex = collections.findIndex(c => c.id === collectionId);
     
     if (collectionIndex === -1) return null;
@@ -170,7 +323,7 @@ export class Storage {
     };
     
     collections[collectionIndex].updatedAt = new Date().toISOString();
-    this.saveCollections(collections);
+    await this.write();
     
     return collections[collectionIndex].requests[requestIndex];
   }
@@ -181,8 +334,10 @@ export class Storage {
    * @param {String} requestId Request ID
    * @returns {Boolean} True if deleted, false if not found
    */
-  deleteRequest(collectionId, requestId) {
-    const collections = this.getCollections();
+  async deleteRequest(collectionId, requestId) {
+    await this.ensureDbReady();
+    
+    const collections = this.db.data.collections;
     const collectionIndex = collections.findIndex(c => c.id === collectionId);
     
     if (collectionIndex === -1) return false;
@@ -193,7 +348,7 @@ export class Storage {
     if (collections[collectionIndex].requests.length === initialLength) return false;
     
     collections[collectionIndex].updatedAt = new Date().toISOString();
-    this.saveCollections(collections);
+    await this.write();
     
     return true;
   }
@@ -203,8 +358,10 @@ export class Storage {
    * @param {String} collectionId Collection ID
    * @returns {Array|null} Array of requests or null if collection not found
    */
-  getRequests(collectionId) {
-    const collections = this.getCollections();
+  async getRequests(collectionId) {
+    await this.ensureDbReady();
+    
+    const collections = this.db.data.collections;
     const collection = collections.find(c => c.id === collectionId);
     
     if (!collection) return null;

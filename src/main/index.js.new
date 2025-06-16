@@ -63,13 +63,13 @@ async function initializeStorage() {
     }
     
     console.log(`Creating storage with path: ${dbPath}`);
-    storage = new Storage(dbPath, app.getPath('userData'));
+    storage = new Storage(dbPath);
     const success = await storage.init();
     
     if (!success) {
       console.error('Storage initialization failed, trying fallback to userData');
       // Try with default path as fallback
-      storage = new Storage(app.getPath('userData'), app.getPath('userData'));
+      storage = new Storage(app.getPath('userData'));
       await storage.init();
     }
     
@@ -79,7 +79,7 @@ async function initializeStorage() {
   } catch (err) {
     console.error('Error initializing storage:', err);
     // Create fallback in-memory storage
-    storage = new Storage(app.getPath('userData'), app.getPath('userData'));
+    storage = new Storage(app.getPath('userData'));
     await storage.init();
     storageInitialized = true;
     return storage;
@@ -87,54 +87,8 @@ async function initializeStorage() {
 }
 
 /**
- * Initialize the main window
+ * Register all IPC handlers - only called once
  */
-async function createWindow() {
-  // Initialize storage
-  await initializeStorage();
-  
-  console.log('main process', process.cwd());
-  // In ES modules, __dirname is not available directly, we need to construct it
-  const preloadPath = path.join(__dirname, 'preload.js');
-  //log preload
-  console.log('preload path', preloadPath);
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    webPreferences: {
-      contextIsolation: true,
-      preload: preloadPath,
-
-    }
-  });
-
-  try {
-    if (!app.isPackaged) {
-      // Development mode - try to load from dev server, but fall back to static files if server isn't running
-      try {
-        console.log('Attempting to connect to development server at http://localhost:5173');
-        await win.loadURL('http://localhost:5173');
-        console.log('Successfully connected to development server');
-      } catch (error) {
-        console.warn('Could not connect to development server, falling back to build directory', error);
-        const __dirname = path.dirname(fileURLToPath(import.meta.url));
-        win.loadFile(path.join(__dirname, '../../build/index.html')).catch(err => {
-          console.error('Failed to load from build directory:', err);
-          win.webContents.openDevTools();
-          win.webContents.loadFile(path.join(__dirname, '../renderer/error.html'));
-        });
-      }
-    } else {
-      // Production mode - load from build directory
-      const __dirname = path.dirname(fileURLToPath(import.meta.url));
-      win.loadFile(path.join(__dirname, '../../build/index.html'));
-    }
-  } catch (err) {
-    console.error('Error loading window content:', err);
-  }
-}
-
-// Register all IPC handlers - only called once
 function registerIpcHandlers() {
   if (handlersRegistered) {
     console.log('IPC handlers already registered, skipping');
@@ -184,18 +138,6 @@ function registerIpcHandlers() {
     }
   });
   
-  // Collection handlers
-  ipcMain.handle('get-collections', async (event) => {
-    try {
-      const collections = await storage.getCollections();
-      console.log(`Returning ${collections.length} collections from get-collections handler`);
-      return { success: true, data: collections };
-    } catch (error) {
-      console.error('Error getting collections:', error);
-      return { success: false, error: error.message };
-    }
-  });
-  
   // HTTP request handler
   ipcMain.handle('send-request', async (event, config) => {
     console.log('Sending request:', config);
@@ -226,6 +168,16 @@ function registerIpcHandlers() {
   });
   
   // Collection handlers
+  ipcMain.handle('get-collections', async () => {
+    try {
+      const collections = await storage.getCollections();
+      console.log(`Returning ${collections.length} collections from get-collections handler`);
+      return { success: true, data: collections };
+    } catch (error) {
+      console.error('Error getting collections:', error);
+      return { success: false, error: error.message };
+    }
+  });
   
   ipcMain.handle('create-collection', async (event, collectionData) => {
     try {
@@ -253,8 +205,7 @@ function registerIpcHandlers() {
       }
       
       console.log(`Creating collection: ${collectionName}`);
-      // Create a proper collection object with name property
-      const collection = await storage.createCollection({ name: collectionName });
+      const collection = await storage.createCollection(collectionName);
       console.log('Collection created successfully:', collection);
       return { success: true, data: collection };
     } catch (error) {
@@ -283,18 +234,6 @@ function registerIpcHandlers() {
     }
   });
   
-  // App control
-  ipcMain.handle('reload-app', () => {
-    try {
-      app.relaunch();
-      app.exit(0);
-      return { success: true };
-    } catch (error) {
-      console.error('Error reloading app:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
   // Requests API
   ipcMain.handle('get-requests', async (event, collectionId) => {
     try {
@@ -336,8 +275,66 @@ function registerIpcHandlers() {
     }
   });
   
-  // Mark handlers as registered
+  // App control
+  ipcMain.handle('reload-app', () => {
+    try {
+      app.relaunch();
+      app.exit(0);
+      return { success: true };
+    } catch (error) {
+      console.error('Error reloading app:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
   handlersRegistered = true;
+}
+
+/**
+ * Initialize the main window
+ */
+async function createWindow() {
+  // Initialize storage
+  await initializeStorage();
+  
+  console.log('main process', process.cwd());
+  // In ES modules, __dirname is not available directly, we need to construct it
+  const preloadPath = path.join(__dirname, 'preload.js');
+  //log preload
+  console.log('preload path', preloadPath);
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    webPreferences: {
+      contextIsolation: true,
+      preload: preloadPath,
+    }
+  });
+
+  try {
+    if (!app.isPackaged) {
+      // Development mode - try to load from dev server, but fall back to static files if server isn't running
+      try {
+        console.log('Attempting to connect to development server at http://localhost:5173');
+        await mainWindow.loadURL('http://localhost:5173');
+        console.log('Successfully connected to development server');
+      } catch (error) {
+        console.warn('Could not connect to development server, falling back to build directory', error);
+        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+        mainWindow.loadFile(path.join(__dirname, '../../build/index.html')).catch(err => {
+          console.error('Failed to load from build directory:', err);
+          mainWindow.webContents.openDevTools();
+          mainWindow.webContents.loadFile(path.join(__dirname, '../renderer/error.html'));
+        });
+      }
+    } else {
+      // Production mode - load from build directory
+      const __dirname = path.dirname(fileURLToPath(import.meta.url));
+      mainWindow.loadFile(path.join(__dirname, '../../build/index.html'));
+    }
+  } catch (err) {
+    console.error('Error loading window content:', err);
+  }
 }
 
 // App lifecycle events

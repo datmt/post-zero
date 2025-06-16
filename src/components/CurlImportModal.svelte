@@ -31,8 +31,8 @@
           <button type="button" class="btn-close" aria-label="Close" on:click={handleClose}></button>
         </div>
         <div class="modal-body">
-          <label class="form-label">Paste your curl command below:</label>
-          <textarea class="form-control mb-2" rows="4" bind:value={curl} placeholder="curl ..."></textarea>
+          <label for="curl-input" class="form-label">Paste your curl command below:</label>
+          <textarea id="curl-input" class="form-control mb-2" rows="4" bind:value={curl} placeholder="curl ..."></textarea>
           {#if error}
             <div class="text-danger small mb-2">{error}</div>
           {/if}
