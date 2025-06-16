@@ -19,7 +19,26 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  // IPC handler for curl parsing
+  const { ipcMain } = require('electron');
+  const curlconverter = require('curlconverter');
+  ipcMain.handle('parse-curl', async (event, curl) => {
+    try {
+      const reqObj = curlconverter.toJsonString(curl);
+      const parsed = JSON.parse(reqObj);
+      // Normalize headers for renderer
+      parsed.headers = Array.isArray(parsed.headers)
+        ? parsed.headers.map(h => ({ key: h.name, value: h.value }))
+        : [];
+      return { success: true, request: parsed };
+    } catch (e) {
+      return { success: false, error: e.message || 'Failed to parse curl' };
+    }
+  });
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

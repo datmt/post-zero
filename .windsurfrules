@@ -1,0 +1,100 @@
+
+# Project-specific AI rules for Windsurf Cascade
+
+# 🧠 Context – High-level Goals
+# 1. Build a minimal desktop API client with Electron + SvelteKit or React + Vite.
+# 2. Core MVP features only: request sending, curl import, Swagger/OpenAPI import, collections, response viewer.
+# 3. No scripting, testing frameworks, env injection, token refresh, CI/CD, or cloud-sync.
+# 4. Simple JSON-based storage using lowdb or file system under app.getPath('userData').
+# 5. UI must be minimal, clear, functional; styled with TailwindCSS.
+
+---
+
+global:
+  allow_context_file_read: true
+  context_directories:
+    - src
+    - public
+  default_language: typescript
+  code_style:
+    indent: 2
+    quotes: single
+    semi: true
+
+# 🧱 Tech Stack & Tooling
+stack:
+  electron_main: typescript
+  electron_renderer: sveltekit # or "react" if preferred
+  bundler: vite
+  styling: tailwindcss
+  http_client: axios # or fetch
+  curl_parser: curlconverter
+  openapi_parser: swagger-client
+  db: lowdb # or JSON file
+  packaging: electron-builder
+
+# 📂 Project Structure Conventions
+structure:
+  src/
+    main/: for Electron main process code
+    renderer/: for UI layer
+      components/: UI building blocks
+      pages/: main screens/layouts
+    shared/: utilities (curl parser, swagger importer, storage logic)
+  public/: static assets
+  naming:
+    components: PascalCase.tsx or .svelte
+    utils/stores: camelCase.ts
+    files: kebab-case.js/ts
+  no_monorepo: true
+
+# ✅ Feature-Level AI Guidance
+
+features:
+  send_request:
+    description: |
+      Create a form component (`RequestEditor`) supporting:
+       - Method selector (GET, POST, etc.)
+       - URL field
+       - Headers editor (key/value list)
+       - Body editor (JSON or plain text)
+      On "Send", use axios/fetch and show status, headers, body (pretty-printed JSON) in `ResponseViewer`.
+  import_curl:
+    description: |
+      Implement `CurlImporter` utility using `curlconverter` to parse curl commands into structured JS
+      and populate `RequestEditor` fields correctly.
+  import_swagger:
+    description: |
+      Implement `SwaggerImporter` using `swagger-client` to parse spec from URL/file.
+      Return an array of endpoint objects (method, url, parameters, description).
+      Provide a UI to select endpoints and add them to a collection.
+  collections:
+    description: |
+      Store user collections as JSON using lowdb or a JSON file.
+      Expose create/read/update/delete functions:
+       - createCollection(name)
+       - addRequest(collectionId, request)
+       - editRequest(collectionId, requestId, updated)
+       - deleteRequest(collectionId, requestId)
+      UI: Sidebar showing collections and nested request list.
+  new_request:
+    description: |
+      Empty `RequestEditor` UI allows creating and saving a new request from scratch.
+  storage:
+    description: |
+      Use Electron main process APIs to read/write JSON in userData.
+      Frontend via IPC calls like `invoke('loadCollections')` or `invoke('saveCollections')`.
+  bundling:
+    description: |
+      Use Vite config with vite-plugin-electron-main and vite-plugin-electron-renderer.
+      Build for dev (hot reload) and production using electron-builder settings.
+      Output: .exe, .dmg, .AppImage or .deb.
+
+# 🎯 Coding Conventions
+conventions:
+  no_testing_logic: true
+  no_env_vars: true
+  no_scripting: true
+  minimal_dependencies_only: true
+  use_IPC_boundary: true
+  simple_ui_no_tabs_until_MVP: true
