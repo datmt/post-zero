@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
-    "dev:electron": "concurrently \"vite dev\" \"wait-on http://localhost:5173 && electron .\""
+    "dev:electron": "concurrently \"vite dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "electron-builder build",
+    "electron:build:win": "electron-builder build --win",
+    "electron:build:mac": "electron-builder build --mac",
+    "electron:build:linux": "electron-builder build --linux"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^10.1.1",
@@ -27,5 +31,34 @@
     "electron-builder": "^26.0.12",
     "postcss": "^8.5.5",
     "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.postzero.app",
+    "productName": "PostZero",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "${GITHUB_REPOSITORY_OWNER}",
+      "repo": "postzero"
+    }
   }
 }
