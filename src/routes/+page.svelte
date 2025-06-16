@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import Sidebar from '../components/Sidebar.svelte';
   import RequestEditor from '../components/RequestEditor.svelte';
   import ResponseViewer from '../components/ResponseViewer.svelte';
@@ -39,6 +40,32 @@
   let editingTabName = '';
   let tabEditJustConfirmed = false;
 
+  // Load collections from storage
+  async function loadCollections() {
+    try {
+      if (window.electronAPI?.getCollections) {
+        console.log('Loading collections from storage...');
+        const response = await window.electronAPI.getCollections();
+        
+        if (response.success && Array.isArray(response.data)) {
+          collections = response.data;
+          console.log(`Loaded ${collections.length} collections`);
+        } else {
+          console.error('Failed to load collections:', response.error || 'Unknown error');
+        }
+      } else {
+        console.warn('Electron API not available for loading collections');
+      }
+    } catch (err) {
+      console.error('Error loading collections:', err);
+    }
+  }
+
+  // Initialize app on mount
+  onMount(() => {
+    loadCollections();
+  });
+
   function startEditingTab(idx) {
     editingTabIdx = idx;
     editingTabName = requests[idx].name || `Request ${idx+1}`;
@@ -52,7 +79,20 @@
     // Update the request in storage if it belongs to a collection
     if (request.collectionId && window.electronAPI?.updateRequest) {
       try {
-        await window.electronAPI.updateRequest(request.collectionId, request.id, request);
+        const response = await window.electronAPI.updateRequest(request.collectionId, request.id, request);
+        if (response.success) {
+          // Refresh collections to update the request name in the sidebar
+          await loadCollections();
+          
+          // If the current collection is the one containing this request, make sure it's selected
+          if (selectedCollection && selectedCollection.id === request.collectionId) {
+            // Find and reselect the collection to ensure it's expanded
+            const updatedCollection = collections.find(c => c.id === request.collectionId);
+            if (updatedCollection) {
+              selectedCollection = updatedCollection;
+            }
+          }
+        }
       } catch (err) {
         console.error('Failed to update request name:', err);
       }
@@ -92,22 +132,57 @@
     // Get current request
     const req = requests[activeRequestIdx];
     req.collectionId = selectedCollection.id;
+    req.collectionName = selectedCollection.name; // Add collection name to request
+    
+    // Ensure request has a name
+    if (!req.name || req.name.trim() === '') {
+      req.name = `${req.method} ${new URL(req.url).pathname}`;
+    }
+    
+    // Format JSON body if applicable
+    if (req.contentType === 'application/json' && req.body) {
+      try {
+        // Ensure body is properly parsed and stringified JSON
+        const jsonObj = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        req.body = JSON.stringify(jsonObj);
+      } catch (e) {
+        // If not valid JSON, keep as is
+        console.warn('Request body is not valid JSON');
+      }
+    }
     
     // Save to collection
     try {
       const response = await window.electronAPI.addRequest(selectedCollection.id, req);
       if (response.success) {
-        // Replace the request with the one from the server (with proper ID)
-        requests[activeRequestIdx] = response.data;
-        requests = requests; // Trigger reactivity
+        // Update the request with server data but preserve the object reference
+        // This keeps the bindings intact in the RequestEditor
+        const savedRequest = response.data;
+        
+        // Update only necessary properties instead of replacing the whole object
+        req.id = savedRequest.id;
+        req.collectionId = savedRequest.collectionId;
+        req.collectionName = savedRequest.collectionName;
+        req.createdAt = savedRequest.createdAt;
+        req.updatedAt = savedRequest.updatedAt;
+        
+        // Trigger reactivity
+        requests = [...requests];
         
         // Remove from unsaved set
         unsavedRequests.delete(req.id);
         unsavedRequests = unsavedRequests; // Trigger reactivity
-        console.log('Request saved to collection successfully');
+        
+        // Show success message with collection name
+        alert(`Request saved to collection: ${selectedCollection.name}`);
+        console.log(`Request saved to collection: ${selectedCollection.name}`);
+        
+        // Refresh collections to update request count
+        loadCollections();
       }
     } catch (err) {
       console.error('Failed to save request to collection:', err);
+      alert('Failed to save request: ' + (err.message || 'Unknown error'));
     }
   }
   
@@ -117,15 +192,49 @@
     // Only save if it belongs to a collection
     if (req.collectionId && window.electronAPI?.updateRequest && unsavedRequests.has(req.id)) {
       try {
+        // Format JSON body if applicable
+        if (req.contentType === 'application/json' && req.body) {
+          try {
+            // Ensure body is properly parsed and stringified JSON
+            const jsonObj = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+            req.body = JSON.stringify(jsonObj);
+          } catch (e) {
+            // If not valid JSON, keep as is
+            console.warn('Request body is not valid JSON');
+          }
+        }
+        
         const response = await window.electronAPI.updateRequest(req.collectionId, req.id, req);
         if (response.success) {
+          // Update the request with server data but preserve the object reference
+          const updatedRequest = response.data;
+          
+          // Update only necessary properties
+          req.updatedAt = updatedRequest.updatedAt;
+          
           // Remove from unsaved set
           unsavedRequests.delete(req.id);
           unsavedRequests = unsavedRequests; // Trigger reactivity
-          console.log('Request saved successfully');
+          
+          // Refresh collections to update the request in the sidebar
+          await loadCollections();
+          
+          // If the current collection is the one containing this request, make sure it's selected
+          if (selectedCollection && selectedCollection.id === req.collectionId) {
+            // Find and reselect the collection to ensure it's expanded
+            const updatedCollection = collections.find(c => c.id === req.collectionId);
+            if (updatedCollection) {
+              selectedCollection = updatedCollection;
+            }
+          }
+          
+          // Show success message
+          console.log('Request updated successfully');
+          alert('Request updated successfully');
         }
       } catch (err) {
         console.error('Failed to save request:', err);
+        alert('Failed to update request: ' + (err.message || 'Unknown error'));
       }
     } else if (!req.collectionId) {
       // If not in a collection yet, save to collection
@@ -285,6 +394,28 @@
     }
     
     showAddCollectionModal = false;
+  }
+  
+  // Handle selecting a request from the sidebar
+  function handleSelectRequest(request) {
+    console.log('Selected request:', request);
+    
+    // Check if the request is already open in a tab
+    const existingTabIndex = requests.findIndex(r => r.id === request.id);
+    
+    if (existingTabIndex >= 0) {
+      // If already open, just switch to that tab
+      activeRequestIdx = existingTabIndex;
+    } else {
+      // Otherwise, add it as a new tab
+      // Create a deep copy to avoid reference issues
+      const requestCopy = JSON.parse(JSON.stringify(request));
+      
+      // Add to tabs
+      requests = [...requests, requestCopy];
+      responses = [...responses, null];
+      activeRequestIdx = requests.length - 1;
+    }
   }
   
   async function handleDeleteCollection(collection) {
@@ -449,6 +580,7 @@ async function handleCurlImport({ detail }) {
         onSelectCollection={handleSelectCollection} 
         onAddCollection={handleAddCollection} 
         onDeleteCollection={handleDeleteCollection}
+        onSelectRequest={handleSelectRequest}
       />
     </div>
     <div class="col p-0 d-flex flex-column" style="overflow-x:auto;">
@@ -535,11 +667,13 @@ async function handleCurlImport({ detail }) {
             <Settings on:close={() => showSettings = false} />
           </div>
         {:else}
+          {#key activeRequestIdx}
           <RequestEditor
             request={requests[activeRequestIdx]}
             onSend={handleSend}
             onChange={handleChange}
           />
+          {/key}
           <div class="mt-3">
             <ResponseViewer response={responses[activeRequestIdx]} isLoading={isLoading} />
           </div>

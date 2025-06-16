@@ -56,6 +56,14 @@
 </script>
 
 <div class="container-fluid py-3">
+  <!-- Collection indicator if request belongs to a collection -->
+  {#if request.collectionId}
+    <div class="mb-2 d-flex align-items-center">
+      <span class="badge bg-info me-2">Collection:</span>
+      <span class="text-muted small">{request.collectionName || 'Unknown Collection'}</span>
+    </div>
+  {/if}
+  
   <form class="row g-2 align-items-center" on:submit|preventDefault={onSend}>
     <div class="col-auto">
       <select bind:value={request.method} class="form-select" on:change={onChange} style="min-width:90px;">

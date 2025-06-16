@@ -63,13 +63,14 @@ async function initializeStorage() {
     }
     
     console.log(`Creating storage with path: ${dbPath}`);
-    storage = new Storage(dbPath, app.getPath('userData'));
+    // Storage constructor expects (userDataPath, fileName = 'postzero-db')
+    storage = new Storage(dbPath);
     const success = await storage.init();
     
     if (!success) {
       console.error('Storage initialization failed, trying fallback to userData');
       // Try with default path as fallback
-      storage = new Storage(app.getPath('userData'), app.getPath('userData'));
+      storage = new Storage(app.getPath('userData'));
       await storage.init();
     }
     
@@ -79,7 +80,7 @@ async function initializeStorage() {
   } catch (err) {
     console.error('Error initializing storage:', err);
     // Create fallback in-memory storage
-    storage = new Storage(app.getPath('userData'), app.getPath('userData'));
+    storage = new Storage(app.getPath('userData'));
     await storage.init();
     storageInitialized = true;
     return storage;

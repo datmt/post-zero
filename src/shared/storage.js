@@ -278,21 +278,50 @@ export class Storage {
     
     // Generate a unique id for the request if it doesn't have one
     const id = request.id || Date.now().toString();
+    
+    // Process the request body based on content type
+    let processedRequest = { ...request };
+    
+    // Handle JSON body properly
+    if (request.contentType === 'application/json' && request.body) {
+      try {
+        // If it's a string, parse it to ensure it's valid JSON
+        if (typeof request.body === 'string') {
+          const jsonObj = JSON.parse(request.body);
+          // Store the parsed object directly
+          processedRequest.bodyObject = jsonObj;
+          // Keep the string version too for compatibility
+          processedRequest.body = request.body;
+        } else {
+          // If it's already an object, stringify it for the body field
+          processedRequest.bodyObject = request.body;
+          processedRequest.body = JSON.stringify(request.body);
+        }
+      } catch (e) {
+        console.warn('Invalid JSON body in request:', e.message);
+        // Keep the original body if parsing fails
+      }
+    }
+    
+    // Create the new request object with metadata
     const newRequest = {
       id,
-      ...request,
+      ...processedRequest,
       collectionId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     
+    // Ensure the collection has a requests array
     if (!collections[collectionIndex].requests) {
       collections[collectionIndex].requests = [];
     }
     
+    // Add the request to the collection
     collections[collectionIndex].requests.push(newRequest);
     collections[collectionIndex].updatedAt = new Date().toISOString();
     
+    // Write changes to disk
     await this.write();
     return newRequest;
   }
