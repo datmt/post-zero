@@ -65,15 +65,15 @@ function handleTabInputBlur(idx) {
         method: req.method,
         url: req.url,
         headers,
-        data: req.body || undefined,
-        validateStatus: () => true // Always resolve
+        data: req.body || undefined
+        // Remove validateStatus as functions can't be serialized over IPC
       };
       console.log('Sending request:', config);
       if (!window.electronAPI?.sendRequest) {
         throw new Error('Electron API not available. Please run in Electron.');
       }
-      console.log('Electron API available, before sending', window.electronAPI.sendRequest);
-      const res = await window.electronAPI.sendRequest(JSON.stringify(config));
+      console.log('Electron API available, before sending', config);
+      const res = await window.electronAPI.sendRequest(config);
       console.log('Response:', res);
       const time = Math.round(performance.now() - start);
       if (res.success) {

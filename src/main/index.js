@@ -33,10 +33,14 @@ app.whenReady().then(() => {
   createWindow();
 
   ipcMain.handle('send-request', async (event, config) => {
-
-    console.log('Sending request:',event,  config);
+    console.log('Sending request:', config);
     try {
-      const res = await axios(config);
+      // Set validateStatus here in main process instead of renderer
+      const axiosConfig = {
+        ...config,
+        validateStatus: () => true // Accept any status code
+      };
+      const res = await axios(axiosConfig);
       return {
         success: true,
         status: res.status,
