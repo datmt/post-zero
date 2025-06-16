@@ -3,6 +3,7 @@
   import RequestEditor from '../components/RequestEditor.svelte';
   import ResponseViewer from '../components/ResponseViewer.svelte';
   import CurlImportModal from '../components/CurlImportModal.svelte';
+  import AddCollectionModal from '../components/AddCollectionModal.svelte';
   
   // Track loading state for request in progress
   let isLoading = false;
@@ -26,6 +27,7 @@ import { parseCurlCommand } from '../shared/parseCurl.js';
   let responses = [null];
   let activeRequestIdx = 0;
   let showCurlImportModal = false;
+let showAddCollectionModal = false;
 let curlImportError = '';
 let editingTabIdx = null;
 let editingTabName = '';
@@ -119,8 +121,15 @@ function handleTabInputBlur(idx) {
     selectedCollection = col;
   }
   function handleAddCollection() {
-    const name = prompt('Collection name?');
-    if (name) collections = [...collections, { name, requests: [] }];
+    showAddCollectionModal = true;
+  }
+  
+  function handleAddCollectionSubmit(event) {
+    const { name } = event.detail;
+    if (name) {
+      collections = [...collections, { name, requests: [] }];
+    }
+    showAddCollectionModal = false;
   }
   function addManualRequest() {
   requests = [...requests, {
@@ -235,6 +244,11 @@ function handleCurlImport({ detail }) {
     show={showCurlImportModal}
     onClose={() => { showCurlImportModal = false; curlImportError = ''; }}
     on:import={handleCurlImport}
+  />
+  <AddCollectionModal
+    show={showAddCollectionModal}
+    on:close={() => { showAddCollectionModal = false; }}
+    on:add={handleAddCollectionSubmit}
   />
 {#if curlImportError}
   <div class="alert alert-danger position-fixed top-0 start-50 translate-middle-x mt-3" style="z-index:2000; min-width:300px; max-width:90vw;">
