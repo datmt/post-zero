@@ -53,15 +53,58 @@ function handleTabInputBlur(idx) {
   tabEditJustConfirmed = false;
 }
 
-  function handleSend() {
-    // Placeholder, will implement axios logic next
-    responses[activeRequestIdx] = {
-      status: 200,
-      time: 123,
-      size: 42,
-      headers: { 'content-type': 'application/json' },
-      data: { message: 'Hello from PostZero!' }
-    };
+  async function handleSend() {
+    const req = requests[activeRequestIdx];
+    const start = performance.now();
+    try {
+      const headers = {};
+      (req.headers || []).forEach(h => {
+        if (h.key) headers[h.key] = h.value;
+      });
+      const config = {
+        method: req.method,
+        url: req.url,
+        headers,
+        data: req.body || undefined,
+        validateStatus: () => true // Always resolve
+      };
+      console.log('Sending request:', config);
+      if (!window.electronAPI?.sendRequest) {
+        throw new Error('Electron API not available. Please run in Electron.');
+      }
+      console.log('Electron API available, before sending', window.electronAPI.sendRequest);
+      const res = await window.electronAPI.sendRequest(JSON.stringify(config));
+      console.log('Response:', res);
+      const time = Math.round(performance.now() - start);
+      if (res.success) {
+        responses[activeRequestIdx] = {
+          status: res.status,
+          statusText: res.statusText,
+          time,
+          size: res.data ? JSON.stringify(res.data).length : 0,
+          headers: res.headers,
+          data: res.data
+        };
+      } else {
+        responses[activeRequestIdx] = {
+          status: res.status,
+          statusText: res.statusText,
+          time,
+          size: res.data ? JSON.stringify(res.data).length : 0,
+          headers: res.headers,
+          data: res.error || 'Request failed'
+        };
+      }
+    } catch (e) {
+      responses[activeRequestIdx] = {
+        status: 0,
+        statusText: 'Error',
+        time: Math.round(performance.now() - start),
+        size: 0,
+        headers: {},
+        data: e.message || 'Request failed'
+      };
+    }
   }
   function handleChange() {
     // For now, just a stub

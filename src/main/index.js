@@ -1,13 +1,21 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 function createWindow() {
+  console.log('main process', process.cwd());
+  // In ES modules, __dirname is not available directly, we need to construct it
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const preloadPath = path.join(__dirname, 'preload.js');
+  //log preload
+  console.log('preload path', preloadPath);
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      contextIsolation: true
+      contextIsolation: true,
+      preload: preloadPath,
+
     }
   });
 
@@ -19,23 +27,32 @@ function createWindow() {
   }
 }
 
+import axios from 'axios';
+
 app.whenReady().then(() => {
   createWindow();
 
-  // IPC handler for curl parsing
-  const { ipcMain } = require('electron');
-  const curlconverter = require('curlconverter');
-  ipcMain.handle('parse-curl', async (event, curl) => {
+  ipcMain.handle('send-request', async (event, config) => {
+
+    console.log('Sending request:',event,  config);
     try {
-      const reqObj = curlconverter.toJsonString(curl);
-      const parsed = JSON.parse(reqObj);
-      // Normalize headers for renderer
-      parsed.headers = Array.isArray(parsed.headers)
-        ? parsed.headers.map(h => ({ key: h.name, value: h.value }))
-        : [];
-      return { success: true, request: parsed };
+      const res = await axios(config);
+      return {
+        success: true,
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+        data: res.data
+      };
     } catch (e) {
-      return { success: false, error: e.message || 'Failed to parse curl' };
+      return {
+        success: false,
+        error: e.message,
+        status: e.response?.status || 0,
+        statusText: e.response?.statusText || 'Error',
+        headers: e.response?.headers || {},
+        data: e.response?.data || null
+      };
     }
   });
 });

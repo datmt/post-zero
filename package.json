@@ -10,18 +10,18 @@
     "electron": "electron ."
   },
   "dependencies": {
-    "@sveltejs/kit": "^2.21.5",
-    "svelte": "^5.34.3",
-    "axios": "^1.6.8",
-    "tailwindcss": "^3.4.1",
-    "curlconverter": "^4.0.0",
     "@apidevtools/swagger-parser": "^10.1.1",
-    "lowdb": "^6.1.1"
+    "@sveltejs/kit": "^2.21.5",
+    "axios": "^1.10.0",
+    "curlconverter": "^4.0.0",
+    "lowdb": "^6.1.1",
+    "svelte": "^5.34.3",
+    "tailwindcss": "^3.4.1"
   },
   "devDependencies": {
+    "autoprefixer": "^10.4.17",
     "electron": "^36.4.0",
     "electron-builder": "^26.0.12",
-    "autoprefixer": "^10.4.17",
     "postcss": "^8.5.5"
   }
 }
