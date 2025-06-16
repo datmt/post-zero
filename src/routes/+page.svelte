@@ -3,6 +3,9 @@
   import RequestEditor from '../components/RequestEditor.svelte';
   import ResponseViewer from '../components/ResponseViewer.svelte';
   import CurlImportModal from '../components/CurlImportModal.svelte';
+  
+  // Track loading state for request in progress
+  let isLoading = false;
 import { parseCurlCommand } from '../shared/parseCurl.js';
 
   let collections = [
@@ -56,6 +59,7 @@ function handleTabInputBlur(idx) {
   async function handleSend() {
     const req = requests[activeRequestIdx];
     const start = performance.now();
+    isLoading = true;
     try {
       const headers = {};
       (req.headers || []).forEach(h => {
@@ -104,6 +108,8 @@ function handleTabInputBlur(idx) {
         headers: {},
         data: e.message || 'Request failed'
       };
+    } finally {
+      isLoading = false;
     }
   }
   function handleChange() {
@@ -198,7 +204,9 @@ function handleCurlImport({ detail }) {
           onSend={handleSend}
           onChange={handleChange}
         />
-        <ResponseViewer response={responses[activeRequestIdx]} />
+        <div class="mt-3">
+          <ResponseViewer response={responses[activeRequestIdx]} isLoading={isLoading} />
+        </div>
       </div>
     </div>
   </div>
