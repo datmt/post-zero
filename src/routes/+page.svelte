@@ -173,7 +173,11 @@ function handleCurlImport({ detail }) {
         <ul class="nav nav-tabs flex-grow-1" role="tablist">
   {#each requests as req, idx}
     <li class="nav-item" role="presentation">
-      <button class="nav-link {activeRequestIdx === idx ? 'active' : ''}" type="button" role="tab" aria-selected={activeRequestIdx === idx} on:click={() => activeRequestIdx = idx}>
+      <div class="nav-link {activeRequestIdx === idx ? 'active' : ''}" role="tab" style="cursor: pointer;" 
+           on:click={() => activeRequestIdx = idx}
+           on:keydown={(e) => e.key === 'Enter' && (activeRequestIdx = idx)}
+           tabindex="0"
+           aria-selected={activeRequestIdx === idx}>
         {#if editingTabIdx === idx}
           <input
             class="form-control form-control-sm d-inline w-auto"
@@ -181,17 +185,34 @@ function handleCurlImport({ detail }) {
             bind:value={editingTabName}
             on:blur={() => handleTabInputBlur(idx)}
             on:keydown={(e) => handleTabInputKeydown(e, idx)}
-            autofocus
           />
         {:else}
-          <span on:click|stopPropagation={() => startEditingTab(idx)} style="cursor:pointer;">
+          <!-- Tab name container -->
+          <span 
+            class="tab-name" 
+            on:click|stopPropagation={() => startEditingTab(idx)}
+            tabindex="0"
+            role="button"
+            aria-label="Edit tab name"
+            on:keydown={(e) => e.key === 'Enter' && startEditingTab(idx)}
+          >
             {req.name || `Request ${idx+1}`}
           </span>
         {/if}
         {#if requests.length > 1}
-          <span class="ms-1" style="cursor:pointer;" title="Close" on:click={(e) => {e.stopPropagation(); removeRequest(idx);}}>&times;</span>
+          <!-- Close button -->
+          <span 
+            class="ms-1" 
+            style="cursor:pointer;" 
+            title="Close tab"
+            role="button"
+            tabindex="0"
+            aria-label="Close tab"
+            on:click|stopPropagation={(e) => removeRequest(idx)}
+            on:keydown|stopPropagation={(e) => e.key === 'Enter' && removeRequest(idx)}
+          >&times;</span>
         {/if}
-      </button>
+      </div>
     </li>
   {/each}
 </ul>
