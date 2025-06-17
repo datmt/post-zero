@@ -27,7 +27,7 @@
   "devDependencies": {
     "autoprefixer": "^10.4.17",
     "concurrently": "^9.1.2",
-    "electron": "^36.4.0",
+    "electron": "^31.4.0",
     "electron-builder": "^26.0.12",
     "postcss": "^8.5.5",
     "wait-on": "^8.0.3"
@@ -57,7 +57,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "${GITHUB_REPOSITORY_OWNER}",
+      "owner": "datmt",
       "repo": "postzero"
     }
   }
